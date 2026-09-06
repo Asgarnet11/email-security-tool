@@ -10,7 +10,7 @@ dotenv.config();
 const { Pool } = pkg;
 const app = express();
 
-// 1. Inisialisasi Database Connection Pool
+// Inisialisasi Database Connection Pool (Neon PostgreSQL)
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
@@ -18,25 +18,12 @@ const pool = new Pool({
   },
 });
 
-// 2. Setup CORS (Fleksibel untuk Lokal, IP LAN, dan Domain Production)
-const allowedOrigins = [
-  process.env.FRONTEND_URL,
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-];
-
+// Setup CORS
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Izinkan request tanpa origin (seperti curl, mobile app, atau direct pixel img tag)
-      if (
-        !origin ||
-        allowedOrigins.includes(origin) ||
-        origin.startsWith("http://192.168.")
-      ) {
-        return callback(null, true);
-      }
-      return callback(new Error("Akses diblokir oleh CORS policy"));
+      // Izinkan request tanpa origin (curl, img tag pixel, mobile app) atau akses web
+      return callback(null, true);
     },
     credentials: true,
   }),
@@ -52,7 +39,7 @@ const PIXEL_BUFFER = Buffer.from(
 
 // Helper Sanitasi IP
 const getCleanIP = (req) => {
-  let ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "";
+  let ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "";
   if (ip.includes(",")) ip = ip.split(",")[0].trim();
   if (ip.startsWith("::ffff:")) ip = ip.substring(7);
   return ip;
@@ -62,7 +49,7 @@ const getCleanIP = (req) => {
 // ROUTES: EMAIL TRACKER & SECURITY
 // ==========================================
 
-// Route A: Ingestion Pixel Email
+// 1. Ingestion Pixel Email
 app.get("/track/px/:id.gif", async (req, res) => {
   const { id } = req.params;
   const ip = getCleanIP(req);
@@ -101,7 +88,7 @@ app.get("/track/px/:id.gif", async (req, res) => {
   res.end(PIXEL_BUFFER);
 });
 
-// Route B: Mengambil 20 Log Pembukaan Email Terakhir
+// 2. Mengambil 20 Log Pembukaan Email Terakhir
 app.get("/api/logs", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -123,7 +110,7 @@ app.get("/api/logs", async (req, res) => {
   }
 });
 
-// Route C: Parser Header Email (Anti-Phishing Inspection)
+// 3. Parser Header Email (Anti-Phishing Inspection)
 app.post("/api/inspect", async (req, res) => {
   const { rawHeader } = req.body;
   if (!rawHeader) {
@@ -178,7 +165,7 @@ app.post("/api/inspect", async (req, res) => {
 // ROUTES: DEVICE GPS TELEMETRY
 // ==========================================
 
-// Route D: Ingestion Koordinat dari HP
+// 4. Ingestion Koordinat dari Perangkat (dengan Auto-Pruning Buffer 200 titik)
 app.post("/api/telemetry", async (req, res) => {
   const {
     device_id,
@@ -195,7 +182,6 @@ app.post("/api/telemetry", async (req, res) => {
   }
 
   try {
-    // Simpan titik baru
     const insertQuery = `
       INSERT INTO device_locations (device_id, latitude, longitude, speed, battery_level)
       VALUES ($1, $2, $3, $4, $5) RETURNING *
@@ -208,7 +194,7 @@ app.post("/api/telemetry", async (req, res) => {
       battery_level,
     ]);
 
-    // Bersihkan buffer (simpan maksimal 200 titik jejak terakhir per device)
+    // Bersihkan data berlebih: hanya simpan 200 titik terbaru per perangkat
     await pool.query(
       `DELETE FROM device_locations
        WHERE id IN (
@@ -228,7 +214,7 @@ app.post("/api/telemetry", async (req, res) => {
   }
 });
 
-// Route E: Ambil Daftar Semua Device Terdaftar
+// 5. Ambil Daftar Semua Perangkat Terdaftar
 app.get("/api/devices", async (req, res) => {
   try {
     const result = await pool.query(`
@@ -248,7 +234,7 @@ app.get("/api/devices", async (req, res) => {
   }
 });
 
-// Route F: Ambil Riwayat Koordinat Device Terpilih
+// 6. Ambil Riwayat Koordinat Perangkat Tertentu
 app.get("/api/telemetry/:device_id", async (req, res) => {
   const { device_id } = req.params;
   try {
@@ -268,13 +254,21 @@ app.get("/api/telemetry/:device_id", async (req, res) => {
   }
 });
 
-// ==========================================
-// SERVER BINDING
-// ==========================================
-const PORT = process.env.PORT || 5000;
-
-// Binding ke 0.0.0.0 agar bisa diakses baik dari localhost maupun IP LAN HP
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 Backend Sentinel aktif di port ${PORT}`);
-  console.log(`📡 Environment: ${process.env.NODE_ENV || "development"}`);
+// Root Healthcheck
+app.get("/api/health", (req, res) => {
+  res.json({ status: "healthy", timestamp: new Date().toISOString() });
 });
+
+// ==========================================
+// SERVER BINDING & EXPORT
+// ==========================================
+// Hanya jalankan app.listen saat lokal (bukan saat di-import oleh Vercel)
+if (process.env.NODE_ENV !== "production" && !process.env.VERCEL) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`🚀 Backend Sentinel aktif di http://localhost:${PORT}`);
+  });
+}
+
+// Wajib diekspor untuk Vercel Serverless / Multi-Service runtime
+export default app;
