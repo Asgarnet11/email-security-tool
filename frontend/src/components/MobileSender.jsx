@@ -10,8 +10,9 @@ import {
   Check,
 } from "lucide-react";
 
+// Rumus Haversine: Hitung selisih jarak dalam satuan meter antara 2 titik koordinat
 function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
-  const R = 6371000;
+  const R = 6371000; // Radius bumi dalam meter
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -24,13 +25,15 @@ function getDistanceFromLatLonInMeters(lat1, lon1, lat2, lon2) {
   return R * c;
 }
 
-export default function MobileSender() {
-  const queryParams = new URLSearchParams(window.location.search);
-  const initialDev =
-    queryParams.get("device") ||
-    `node-${Math.floor(1000 + Math.random() * 9000)}`;
+export default function MobileSender({ isStandalone = false }) {
+  // Lazy initial state: Math.random() hanya dipanggil 1 kali saat inisialisasi awal
+  const [deviceId, setDeviceId] = useState(() => {
+    const queryParams = new URLSearchParams(window.location.search);
+    const paramDev = queryParams.get("device");
+    if (paramDev) return paramDev;
+    return `node-${Math.floor(1000 + Math.random() * 9000)}`;
+  });
 
-  const [deviceId, setDeviceId] = useState(initialDev);
   const [isTracking, setIsTracking] = useState(false);
   const [coords, setCoords] = useState(null);
   const [statusMessage, setStatusMessage] = useState("Standby");
@@ -40,10 +43,21 @@ export default function MobileSender() {
   const watchIdRef = useRef(null);
   const lastSentRef = useRef({ lat: null, lng: null, time: 0 });
 
+  // Deteksi URL backend otomatis (lokal port 5000 vs cloud production)
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL ||
-    `http://${window.location.hostname}:5000`;
-  const shareableUrl = `${window.location.origin}/?tab=mobile-node&device=${deviceId}`;
+    (typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1")
+      ? `http://${window.location.hostname}:5000`
+      : typeof window !== "undefined"
+        ? window.location.origin
+        : "");
+
+  const shareableUrl =
+    typeof window !== "undefined"
+      ? `${window.location.origin}/?tab=track&device=${deviceId}`
+      : "";
 
   useEffect(() => {
     if (navigator.getBattery) {
@@ -71,19 +85,19 @@ export default function MobileSender() {
           device_id: deviceId,
           latitude,
           longitude,
-          speed: speed ? Math.round(speed * 3.6) : 0,
+          speed: speed ? Math.round(speed * 3.6) : 0, // Konversi m/s ke km/jam
           battery_level: batteryLevel,
         }),
       });
       if (res.ok) {
         setStatusMessage(
-          `Tersimpan (${new Date().toLocaleTimeString("id-ID")})`,
+          `Terkirim (${new Date().toLocaleTimeString("id-ID")})`,
         );
       } else {
         setStatusMessage("Gagal simpan ke server");
       }
     } catch {
-      setStatusMessage("Gagal terhubung ke backend");
+      setStatusMessage("Koneksi server terputus");
     }
   };
 
@@ -104,6 +118,7 @@ export default function MobileSender() {
         const now = Date.now();
         const last = lastSentRef.current;
 
+        // FILTER: Minimal 10 detik ATAU berpindah posisi lebih dari 15 meter
         const timeDiff = (now - last.time) / 1000;
         let distanceDiff = 999;
         if (last.lat !== null && last.lng !== null) {
@@ -119,7 +134,7 @@ export default function MobileSender() {
           lastSentRef.current = { lat: latitude, lng: longitude, time: now };
           sendTelemetry(latitude, longitude, speed);
         } else {
-          setStatusMessage("Diam / Jarak < 15m (Skip DB)");
+          setStatusMessage("Diam / Selisih < 15m (Skip)");
         }
       },
       (err) => {
@@ -144,56 +159,79 @@ export default function MobileSender() {
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-5 max-w-md mx-auto">
-      <div>
-        <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
-          <Navigation size={18} className="text-indigo-400" />
-          Mobile GPS Telemetry Node
-        </h2>
-        <p className="text-xs text-slate-400 mt-1">
-          Hemat kuota: Hanya menyimpan jika berpindah minimal 15 meter.
-        </p>
-      </div>
-
-      <div className="space-y-4">
-        <div>
-          <label className="text-xs text-slate-400 block mb-1">
-            Nama / ID Perangkat:
-          </label>
-          <input
-            type="text"
-            className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-indigo-300 focus:outline-none focus:border-indigo-500"
-            value={deviceId}
-            disabled={isTracking}
-            onChange={(e) => setDeviceId(e.target.value.trim())}
-          />
-        </div>
-
-        <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-2">
-          <div className="flex items-center justify-between text-xs text-slate-400">
-            <span className="flex items-center gap-1.5">
-              <Share2 size={12} /> Tautan Node:
-            </span>
-            <button
-              onClick={copyShareLink}
-              className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition"
-            >
-              {copied ? (
-                <Check size={12} className="text-emerald-400" />
-              ) : (
-                <Copy size={12} />
-              )}
-              {copied ? "Tersalin" : "Salin Link"}
-            </button>
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6 shadow-2xl">
+      {isStandalone ? (
+        <div className="text-center space-y-2">
+          <div className="inline-flex p-3 bg-indigo-600/20 text-indigo-400 rounded-full border border-indigo-500/30">
+            <Navigation size={24} />
           </div>
-          <p className="text-[11px] font-mono text-slate-500 break-all">
-            {shareableUrl}
+          <h2 className="text-lg font-semibold text-slate-100">
+            Berbagi Lokasi Langsung
+          </h2>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Perangkat{" "}
+            <span className="font-mono text-indigo-300 font-semibold">
+              {deviceId}
+            </span>{" "}
+            meminta izin transmisi telemetri GPS secara real-time.
           </p>
         </div>
+      ) : (
+        <div>
+          <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
+            <Navigation size={18} className="text-indigo-400" />
+            Mobile GPS Telemetry Node
+          </h2>
+          <p className="text-xs text-slate-400 mt-1">
+            Gunakan modul ini untuk menguji transmisi koordinat dari browser
+            perangkat.
+          </p>
+        </div>
+      )}
+
+      <div className="space-y-4">
+        {!isStandalone && (
+          <>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">
+                Nama / ID Perangkat:
+              </label>
+              <input
+                type="text"
+                className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-indigo-300 focus:outline-none focus:border-indigo-500"
+                value={deviceId}
+                disabled={isTracking}
+                onChange={(e) => setDeviceId(e.target.value.trim())}
+              />
+            </div>
+
+            <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span className="flex items-center gap-1.5 leading-none">
+                  <Share2 size={12} /> Link Khusus Target:
+                </span>
+                <button
+                  onClick={copyShareLink}
+                  className="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition"
+                >
+                  {copied ? (
+                    <Check size={12} className="text-emerald-400" />
+                  ) : (
+                    <Copy size={12} />
+                  )}
+                  {copied ? "Tersalin" : "Salin"}
+                </button>
+              </div>
+              <p className="text-[11px] font-mono text-slate-500 break-all">
+                {shareableUrl}
+              </p>
+            </div>
+          </>
+        )}
 
         <div className="flex justify-between items-center bg-slate-950 p-3 rounded-lg border border-slate-800 text-xs">
           <span className="text-slate-400 flex items-center gap-1.5">
-            <Battery size={14} className="text-emerald-400" /> Level Baterai
+            <Battery size={14} className="text-emerald-400" /> Daya Baterai
           </span>
           <span className="font-mono text-slate-200 font-semibold">
             {batteryLevel}%
@@ -223,30 +261,30 @@ export default function MobileSender() {
           </div>
         )}
 
-        <div className="flex items-center gap-2 text-xs text-slate-400">
+        <div className="flex items-center gap-2 text-xs text-slate-400 bg-slate-950/50 p-3 rounded-lg border border-slate-800/80">
           <Wifi
             size={14}
             className={
-              isTracking ? "text-indigo-400 animate-pulse" : "text-slate-600"
+              isTracking ? "text-emerald-400 animate-pulse" : "text-slate-600"
             }
           />
-          Status Node:{" "}
+          Status:{" "}
           <span className="text-slate-200 font-mono">{statusMessage}</span>
         </div>
 
         {!isTracking ? (
           <button
             onClick={startTracking}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-indigo-600/20"
           >
-            <Play size={14} /> Mulai Transmisi GPS
+            <Play size={16} /> Izinkan & Mulai Berbagi Lokasi
           </button>
         ) : (
           <button
             onClick={stopTracking}
-            className="w-full flex items-center justify-center gap-2 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-xs font-semibold transition"
+            className="w-full flex items-center justify-center gap-2 py-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-sm font-semibold transition"
           >
-            <Square size={14} /> Hentikan Transmisi
+            <Square size={16} /> Hentikan Berbagi Lokasi
           </button>
         )}
       </div>

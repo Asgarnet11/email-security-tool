@@ -4,7 +4,10 @@ import { Copy, Check, Eye, RefreshCw } from "lucide-react";
 export default function PixelTracker() {
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL ||
-    `http://${window.location.hostname}:5000`;
+    (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+      ? `http://${window.location.hostname}:5000`
+      : window.location.origin);
 
   const [trackerId, setTrackerId] = useState("");
   const [copied, setCopied] = useState(false);
