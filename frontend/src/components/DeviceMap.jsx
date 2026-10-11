@@ -16,6 +16,7 @@ import {
   Radio,
   Gauge,
   Milestone,
+  Layers,
 } from "lucide-react";
 
 // Rumus Haversine: Hitung jarak antar dua koordinat dalam KM
@@ -70,6 +71,7 @@ export default function DeviceMap() {
   const [points, setPoints] = useState([]);
   const [autoFollow, setAutoFollow] = useState(true);
   const [sseConnected, setSseConnected] = useState(false);
+  const [mapTheme, setMapTheme] = useState("dark-stealth"); // 'dark-stealth' | 'dark-esri' | 'standard'
 
   const fetchDeviceList = useCallback(async () => {
     try {
@@ -176,9 +178,30 @@ export default function DeviceMap() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Layer Selector */}
+          <div className="flex items-center gap-1.5 bg-slate-950 border border-slate-800 px-2.5 py-1.5 rounded-lg text-xs">
+            <Layers size={13} className="text-indigo-400" />
+            <select
+              className="bg-transparent text-slate-200 focus:outline-none text-xs cursor-pointer font-sans"
+              value={mapTheme}
+              onChange={(e) => setMapTheme(e.target.value)}
+              title="Pilih Tema Peta"
+            >
+              <option value="dark-stealth" className="bg-slate-900 text-slate-200">
+                Dark Radar (OSM Invert)
+              </option>
+              <option value="dark-esri" className="bg-slate-900 text-slate-200">
+                Dark Canvas (Esri)
+              </option>
+              <option value="standard" className="bg-slate-900 text-slate-200">
+                Daylight Street (OSM)
+              </option>
+            </select>
+          </div>
+
           <span
-            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border ${
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-mono border ${
               sseConnected
                 ? "bg-emerald-950/60 text-emerald-400 border-emerald-800/80"
                 : "bg-slate-800 text-slate-400 border-slate-700"
@@ -265,12 +288,25 @@ export default function DeviceMap() {
         <MapContainer
           center={center}
           zoom={15}
+          maxZoom={19}
           style={{ height: "100%", width: "100%", backgroundColor: "#0f172a" }}
         >
-          <TileLayer
-            attribution='&copy; <a href="https://carto.com/">CARTO</a>'
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-          />
+          {mapTheme === "dark-esri" ? (
+            <TileLayer
+              key="esri-layer"
+              attribution='&copy; <a href="https://www.esri.com/">Esri</a>'
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+              maxZoom={16}
+            />
+          ) : (
+            <TileLayer
+              key={`osm-${mapTheme}`}
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              className={mapTheme === "dark-stealth" ? "dark-map-tiles" : ""}
+              maxZoom={19}
+            />
+          )}
 
           {autoFollow && latestPoint && (
             <MapAutoCenter
