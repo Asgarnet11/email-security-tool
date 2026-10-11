@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -8,13 +8,36 @@ import {
   useMap,
 } from "react-leaflet";
 import L from "leaflet";
-import { RefreshCw, Smartphone, Compass, Navigation } from "lucide-react";
+import {
+  RefreshCw,
+  Smartphone,
+  Compass,
+  Navigation,
+  Radio,
+  Gauge,
+  Milestone,
+} from "lucide-react";
+
+// Rumus Haversine: Hitung jarak antar dua koordinat dalam KM
+function getHaversineDistanceKm(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius bumi dalam KM
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
 
 function MapAutoCenter({ center }) {
   const map = useMap();
   useEffect(() => {
     if (center) {
-      map.flyTo(center, map.getZoom(), { animate: true, duration: 1.5 });
+      map.flyTo(center, map.getZoom(), { animate: true, duration: 1.2 });
     }
   }, [center, map]);
   return null;
@@ -37,12 +60,16 @@ const createPulseIcon = () => {
 export default function DeviceMap() {
   const backendUrl =
     import.meta.env.VITE_BACKEND_URL ||
-    `http://${window.location.hostname}:5000`;
+    (window.location.hostname === "localhost" ||
+    window.location.hostname === "127.0.0.1"
+      ? `http://${window.location.hostname}:5000`
+      : window.location.origin);
 
   const [devices, setDevices] = useState([]);
   const [selectedDevice, setSelectedDevice] = useState("");
   const [points, setPoints] = useState([]);
   const [autoFollow, setAutoFollow] = useState(true);
+  const [sseConnected, setSseConnected] = useState(false);
 
   const fetchDeviceList = useCallback(async () => {
     try {
@@ -50,14 +77,12 @@ export default function DeviceMap() {
       const data = await res.json();
       if (Array.isArray(data) && data.length > 0) {
         setDevices(data);
-        if (!selectedDevice) {
-          setSelectedDevice(data[0].device_id);
-        }
+        setSelectedDevice((prev) => prev || data[0].device_id);
       }
     } catch {
       // Ignored
     }
-  }, [backendUrl, selectedDevice]);
+  }, [backendUrl]);
 
   const fetchLocations = useCallback(async () => {
     if (!selectedDevice) return;
@@ -76,9 +101,60 @@ export default function DeviceMap() {
 
   useEffect(() => {
     fetchLocations();
-    const interval = setInterval(fetchLocations, 4000);
-    return () => clearInterval(interval);
   }, [fetchLocations]);
+
+  // Real-time SSE listener untuk koordinat GPS
+  useEffect(() => {
+    let eventSource = null;
+    try {
+      eventSource = new EventSource(`${backendUrl}/api/stream`);
+      eventSource.addEventListener("connected", () => {
+        setSseConnected(true);
+      });
+      eventSource.addEventListener("new_telemetry", (event) => {
+        try {
+          const newPt = JSON.parse(event.data);
+          if (newPt.device_id === selectedDevice) {
+            setPoints((prev) => [...prev, newPt]);
+          }
+          fetchDeviceList();
+        } catch {
+          // Ignored
+        }
+      });
+      eventSource.onerror = () => {
+        setSseConnected(false);
+      };
+    } catch {
+      setSseConnected(false);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, [backendUrl, selectedDevice, fetchDeviceList]);
+
+  // Hitung total jarak tempuh dan kecepatan rata-rata
+  const { totalDistanceKm, avgSpeed } = useMemo(() => {
+    if (points.length < 2) return { totalDistanceKm: 0, avgSpeed: 0 };
+    let dist = 0;
+    let speedSum = 0;
+    for (let i = 1; i < points.length; i++) {
+      dist += getHaversineDistanceKm(
+        points[i - 1].latitude,
+        points[i - 1].longitude,
+        points[i].latitude,
+        points[i].longitude,
+      );
+      speedSum += points[i].speed || 0;
+    }
+    return {
+      totalDistanceKm: dist.toFixed(2),
+      avgSpeed: Math.round(speedSum / points.length),
+    };
+  }, [points]);
 
   const polylineCoords = points.map((p) => [p.latitude, p.longitude]);
   const latestPoint = points[points.length - 1];
@@ -96,11 +172,22 @@ export default function DeviceMap() {
             Live Geospatial Radar
           </h2>
           <p className="text-xs text-slate-400">
-            Peta telemetri satelit dengan rute presisi.
+            Peta telemetri satelit dengan rute presisi dan live stream koordinat.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
+          <span
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-mono border ${
+              sseConnected
+                ? "bg-emerald-950/60 text-emerald-400 border-emerald-800/80"
+                : "bg-slate-800 text-slate-400 border-slate-700"
+            }`}
+          >
+            <Radio size={11} className={sseConnected ? "animate-pulse" : ""} />
+            {sseConnected ? "Live GPS Stream" : "Polling Mode"}
+          </span>
+
           <button
             onClick={() => setAutoFollow(!autoFollow)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium border flex items-center gap-1.5 transition ${
@@ -152,20 +239,23 @@ export default function DeviceMap() {
         </div>
       </div>
 
+      {/* Rincian Telemetri & Statistik Perjalanan */}
       {latestPoint && (
-        <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-950/80 p-3 rounded-lg border border-slate-800 font-mono text-slate-300">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-slate-950/80 p-3.5 rounded-lg border border-slate-800 font-mono text-slate-300">
           <div className="flex items-center gap-3">
             <span className="text-indigo-400 font-bold">{selectedDevice}</span>
             <span>Lat: {latestPoint.latitude.toFixed(6)}</span>
             <span>Lng: {latestPoint.longitude.toFixed(6)}</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-between md:justify-end gap-3 text-slate-400">
+            <span className="flex items-center gap-1 text-indigo-300">
+              <Milestone size={12} /> Jarak: {totalDistanceKm} km
+            </span>
+            <span className="flex items-center gap-1 text-amber-300">
+              <Gauge size={12} /> Kec: {latestPoint.speed} km/h (Avg {avgSpeed})
+            </span>
             <span className="text-emerald-400 font-semibold">
               Bat: {latestPoint.battery_level}%
-            </span>
-            <span>Kec: {latestPoint.speed} km/h</span>
-            <span className="text-slate-500">
-              {new Date(latestPoint.recorded_at).toLocaleTimeString("id-ID")}
             </span>
           </div>
         </div>

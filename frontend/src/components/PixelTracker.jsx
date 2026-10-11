@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Copy, Check, Eye, RefreshCw } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Copy, Check, Eye, RefreshCw, Radio, Shield, Globe } from "lucide-react";
 
 export default function PixelTracker() {
   const backendUrl =
@@ -13,8 +13,9 @@ export default function PixelTracker() {
   const [copied, setCopied] = useState(false);
   const [logs, setLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const [sseConnected, setSseConnected] = useState(false);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     setLogsLoading(true);
     try {
       const res = await fetch(`${backendUrl}/api/logs`);
@@ -25,24 +26,39 @@ export default function PixelTracker() {
     } finally {
       setLogsLoading(false);
     }
-  };
+  }, [backendUrl]);
 
+  // Initial fetch + SSE Live Stream Connection
   useEffect(() => {
-    let isMounted = true;
-    const init = async () => {
-      try {
-        const res = await fetch(`${backendUrl}/api/logs`);
-        const data = await res.json();
-        if (isMounted && Array.isArray(data)) setLogs(data);
-      } catch {
-        // Ignored
+    fetchLogs();
+
+    let eventSource = null;
+    try {
+      eventSource = new EventSource(`${backendUrl}/api/stream`);
+      eventSource.addEventListener("connected", () => {
+        setSseConnected(true);
+      });
+      eventSource.addEventListener("new_log", (event) => {
+        try {
+          const newEntry = JSON.parse(event.data);
+          setLogs((prev) => [newEntry, ...prev.slice(0, 19)]);
+        } catch {
+          // Ignored
+        }
+      });
+      eventSource.onerror = () => {
+        setSseConnected(false);
+      };
+    } catch {
+      setSseConnected(false);
+    }
+
+    return () => {
+      if (eventSource) {
+        eventSource.close();
       }
     };
-    init();
-    return () => {
-      isMounted = false;
-    };
-  }, [backendUrl]);
+  }, [backendUrl, fetchLogs]);
 
   const generateNewId = () => {
     setTrackerId(crypto.randomUUID());
@@ -62,26 +78,25 @@ export default function PixelTracker() {
   return (
     <div className="space-y-6">
       {/* Generator Section */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-xl">
         <div>
           <h2 className="text-base font-semibold text-slate-200">
             Generator Tracking Pixel
           </h2>
           <p className="text-xs text-slate-400 mt-0.5">
-            Buat tag HTML 1x1 piksel untuk disisipkan ke bodi email sebelum
-            dikirim.
+            Buat tag HTML 1x1 piksel transparan untuk disisipkan ke bodi email sebelum dikirim.
           </p>
         </div>
 
         <button
           onClick={generateNewId}
-          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-medium transition"
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold transition shadow-lg shadow-indigo-600/20"
         >
           Buat ID Pelacak Baru
         </button>
 
         {trackerId && (
-          <div className="space-y-2 mt-4">
+          <div className="space-y-2 mt-4 animate-in fade-in duration-200">
             <div className="flex items-center justify-between bg-slate-950 p-3 rounded-lg border border-slate-800">
               <code className="text-xs text-indigo-300 font-mono break-all">
                 {pixelTag}
@@ -89,7 +104,7 @@ export default function PixelTracker() {
               <button
                 onClick={copyToClipboard}
                 className="ml-3 p-2 bg-slate-800 hover:bg-slate-700 rounded text-slate-300 transition"
-                title="Salin"
+                title="Salin Tag"
               >
                 {copied ? (
                   <Check size={14} className="text-emerald-400" />
@@ -107,27 +122,41 @@ export default function PixelTracker() {
       </div>
 
       {/* Logs Table Section */}
-      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-        <div className="flex justify-between items-center">
+      <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
-              <Eye size={16} className="text-indigo-400" /> Log Email Terbuka
+              <Eye size={16} className="text-indigo-400" /> Log Email Terbuka (Real-Time Ingestion)
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Penerima yang memicu pemuatan gambar pixel dari server.
+              Penerima yang memicu pemuatan pixel dari server pelacak.
             </p>
           </div>
-          <button
-            onClick={fetchLogs}
-            disabled={logsLoading}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs rounded-lg text-slate-300 transition"
-          >
-            <RefreshCw
-              size={12}
-              className={logsLoading ? "animate-spin" : ""}
-            />
-            Refresh
-          </button>
+
+          <div className="flex items-center gap-2">
+            <span
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-mono border ${
+                sseConnected
+                  ? "bg-emerald-950/60 text-emerald-400 border-emerald-800/80"
+                  : "bg-slate-800 text-slate-400 border-slate-700"
+              }`}
+            >
+              <Radio size={11} className={sseConnected ? "animate-pulse" : ""} />
+              {sseConnected ? "Live SSE" : "Offline"}
+            </span>
+
+            <button
+              onClick={fetchLogs}
+              disabled={logsLoading}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs rounded-lg text-slate-300 transition"
+            >
+              <RefreshCw
+                size={12}
+                className={logsLoading ? "animate-spin" : ""}
+              />
+              Refresh
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto border border-slate-800 rounded-lg">
@@ -136,7 +165,8 @@ export default function PixelTracker() {
               <tr>
                 <th className="px-4 py-3">Waktu</th>
                 <th className="px-4 py-3">ID Email</th>
-                <th className="px-4 py-3">Lokasi</th>
+                <th className="px-4 py-3">Kategori Klien</th>
+                <th className="px-4 py-3">Lokasi (GeoIP)</th>
                 <th className="px-4 py-3">IP Address</th>
                 <th className="px-4 py-3">User-Agent</th>
               </tr>
@@ -145,8 +175,8 @@ export default function PixelTracker() {
               {logs.length === 0 ? (
                 <tr>
                   <td
-                    colSpan="5"
-                    className="px-4 py-6 text-center text-slate-500"
+                    colSpan="6"
+                    className="px-4 py-8 text-center text-slate-500"
                   >
                     Belum ada pembukaan email yang tercatat.
                   </td>
@@ -158,10 +188,22 @@ export default function PixelTracker() {
                       {new Date(log.opened_at).toLocaleString("id-ID")}
                     </td>
                     <td
-                      className="px-4 py-3 font-mono text-indigo-400 max-w-30 truncate"
+                      className="px-4 py-3 font-mono text-indigo-400 max-w-28 truncate"
                       title={log.email_id}
                     >
                       {log.email_id}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+                          log.is_proxy
+                            ? "bg-purple-950 text-purple-300 border border-purple-800"
+                            : "bg-emerald-950 text-emerald-400 border border-emerald-800"
+                        }`}
+                      >
+                        {log.is_proxy ? <Shield size={10} /> : <Globe size={10} />}
+                        {log.client_type || (log.is_proxy ? "Mail Proxy" : "Direct Client")}
+                      </span>
                     </td>
                     <td className="px-4 py-3 text-slate-200">
                       <span className="font-medium text-emerald-400">
@@ -169,11 +211,11 @@ export default function PixelTracker() {
                       </span>
                       , {log.country || "Unknown"}
                     </td>
-                    <td className="px-4 py-3 font-mono text-slate-300">
+                    <td className="px-4 py-3 font-mono text-slate-300 whitespace-nowrap">
                       {log.ip_address}
                     </td>
                     <td
-                      className="px-4 py-3 max-w-50 truncate text-slate-400"
+                      className="px-4 py-3 max-w-44 truncate text-slate-400"
                       title={log.user_agent}
                     >
                       {log.user_agent}
