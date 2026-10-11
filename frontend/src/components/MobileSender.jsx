@@ -587,6 +587,35 @@ export default function MobileSender({ isStandalone = false }) {
           </p>
         </div>
 
+        {/* Panduan & Tombol Samarkan Link (Cloaking) */}
+        <div className="p-3.5 bg-indigo-950/20 border border-indigo-500/30 rounded-xl space-y-2 text-xs">
+          <div className="flex items-center gap-1.5 text-indigo-300 font-semibold">
+            <Sparkles size={14} className="text-indigo-400" />
+            <span>Tips Samarkan Link agar Penipu Tidak Tahu:</span>
+          </div>
+          <p className="text-[11px] text-slate-300 leading-relaxed">
+            Domain Vercel Anda (<code className="text-indigo-300 font-mono">email-security-tool.vercel.app</code>) jangan dikirim mentah-mentah ke penipu karena namanya mengandung kata <i>&quot;security-tool&quot;</i>. Singkatkan link ini di layanan shortlink gratis dengan nama alias samaran (misal: kurir/paket):
+          </p>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <a
+              href="https://s.id"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white rounded-lg border border-slate-700 transition flex items-center gap-1 text-[11px] font-medium"
+            >
+              Buka s.id (Contoh: s.id/lacak-resi-jnt) <ArrowRight size={11} />
+            </a>
+            <a
+              href="https://tinyurl.com/app"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-lg border border-slate-700 transition flex items-center gap-1 text-[11px] font-medium"
+            >
+              Buka TinyURL (Contoh: tinyurl.com/posisi-kurir-anda) <ArrowRight size={11} />
+            </a>
+          </div>
+        </div>
+
         {/* Panel Pengujian Langsung dari Browser Ini */}
         <div className="pt-2 border-t border-slate-800 space-y-3">
           <div className="flex justify-between items-center text-xs">

